@@ -7,7 +7,7 @@ if(Sys.info()[1]=='Windows'){
   j = '/home/j/'
 }
 
-# load packages, install if missing  
+# load packages, install if missing
 pack_lib = '/snfs2/HOME/wgodwin/R'
 .libPaths(pack_lib)
 pacman::p_load(data.table, fst, ggplot2, parallel, magrittr, lavaan, foreign)
@@ -42,21 +42,21 @@ for(year in 1998:2016){
   dt <- rbind(dt, dt2)
   rm(dt2)
   dt <- dt[parameter == "TMP"] #RH, TMP, WSP
-  
+
   #Read in year previous
   first <- as.Date(paste0("01/", as.numeric(year)), format = "%j/%Y")
   cutoff <- as.Date(first - 28)
   dt[, date := substr(date, 1, 10)]
   dt[, date := as.Date(date, "%d/%m/%Y")]
   dt <- dt[date >= cutoff]
-  
+
   #merge in municipality metadata
   dt <- merge(dt, muni.dt, by = "id_station")
-  
+
   #Take the average temperature by day, for each station
   dt <- dt[, lapply(.SD, mean, na.rm = T), .SDcols = "temp_mean_day", by = c("date", "adm2_id", "adm2_name")] #min, max, mean
   #dt <- dt[, lapply(.SD, function(x){max(x, na.rm=T) - min(x, na.rm=T)}), .SDcols = "temp_mean_day", by = c("date", "adm2_id", "adm2_name")]
-  
+
   #generating lagged mean temperature
   adm2s <- unique(dt$adm2_id)
   for (n in c(2,3,14,28)) {
@@ -69,12 +69,12 @@ for(year in 1998:2016){
   }
   #remove rows with previous year
   dt <- dt[date >= first]
-  
+
   #generate full time series
   all_days <- seq.Date(from = as.Date(paste0(year, "-01-01")), to = as.Date(paste0(year, "-12-31")), by = "day")
   some_days <- dt[adm2_id== 9010, unique(date)]
   setdiff(some_days, all_days)
-  
+
   #bind on to the end of main dt
   print(year)
   dt.all <- rbind(dt.all, dt)
@@ -111,20 +111,20 @@ for(year in 1998:2016){
   dt <- rbind(dt, dt2)
   rm(dt2)
   dt <- dt[parameter == "O3"] #PM10, PM2.5, O3
-  
+
   #Read in year previous
   first <- as.Date(paste0("01/", as.numeric(year)), format = "%j/%Y")
   cutoff <- as.Date(first - 28)
   dt[, date := substr(date, 1, 10)]
   dt[, date := as.Date(date, "%d/%m/%Y")]
   dt <- dt[date >= cutoff]
-  
+
   #merge in municipality metadata
   dt <- merge(dt, muni.dt, by = "id_station")
-  
+
   #Take the average pollutant by day, for each station
   dt <- dt[, lapply(.SD, mean, na.rm =T), .SDcols = "o3_mean_day", by = c("date", "adm2_id", "adm2_name")]
-  
+
   #generating lagged day mean pollutant concentration
   adm2s <- unique(dt$adm2_id)
   for (n in c(2,3,14,28)) {
@@ -137,12 +137,12 @@ for(year in 1998:2016){
   }
   #remove rows with previous year
   dt <- dt[date >= first]
-  
+
   #generate full time series
   all_days <- seq.Date(from = as.Date(paste0(year, "-01-01")), to = as.Date(paste0(year, "-12-31")), by = "day")
   some_days <- dt[adm2_id== 9014, unique(date)]
   setdiff(some_days, all_days)
-  
+
   #bind on to the end of main dt
   dt.all <- rbind(dt.all, dt)
   print(year)
@@ -193,7 +193,7 @@ for(year in 1998:2016){
     dt <- read.dbf(paste0(main.dir, "cod/defunciones_base_datos_", year, "_dbf/DEFUN", ye, ".dbf")) %>% as.data.table
   } else { dt <- read.dbf(paste0(main.dir, "cod/defunciones_2010_2016/DEFUN", ye, ".dbf")) %>% as.data.table }
   dt <- merge(dt, muni.map, by = c("ENT_OCURR", "MUN_OCURR"))
-  
+
   #Generate date and age and sex variables
   dt[, date := as.Date(paste(DIA_OCURR, MES_OCURR, ANIO_OCUR, sep = "/"), "%e/%m/%Y")]
   dt[, birth_date := as.Date(paste(DIA_NACIM, MES_NACIM, ANIO_NACIM, sep = "/"), "%e/%m/%Y")]
@@ -201,8 +201,9 @@ for(year in 1998:2016){
   dt[, age := round(age)]
   dt[, age_bin := cut(age, seq(0,120,15), c(1:8))]
   dt[, sex_id := ifelse(SEXO == 1, 1, 2)]
+  dt <- dt[age >= 65]
   setnames(dt, c("ESCOLARIDA"), c("education"))
-  
+
   #Merge on icd mapping
   dt[, all_cause_deaths := 1]
   dt[grepl(paste(cardio.codes, collapse = "|"), dt$CAUSA_DEF), cardio_deaths := 1]
@@ -213,7 +214,7 @@ for(year in 1998:2016){
   dt[is.na(ihd_deaths), ihd_deaths := 0]
   dt[grepl(paste(stroke.codes, collapse = "|"), dt$CAUSA_DEF), stroke_deaths := 1]
   dt[is.na(stroke_deaths), stroke_deaths := 0]
-  
+
   #collapse to amd2, day level
   dt <- dt[, lapply(.SD, sum), .SDcols = c("all_cause_deaths", "cardio_deaths", "resp_deaths", "ihd_deaths", "stroke_deaths"), by = c("adm2_id", "date")]
   #dt <- dt[, lapply(.SD, sum), .SDcols = c("all_cause_deaths", "cardio_deaths", "resp_deaths", "ihd_deaths", "stroke_deaths"), by = c("adm2_id", "date", "sex_id", "age_bin")]
@@ -240,10 +241,10 @@ get_season <- function(dates) {
   SE <- as.Date("2012-3-15",  format = "%Y-%m-%d") # Spring Equinox
   SS <- as.Date("2012-6-15",  format = "%Y-%m-%d") # Summer Solstice
   FE <- as.Date("2012-9-15",  format = "%Y-%m-%d") # Fall Equinox
-  
+
   # Convert dates from any year to 2012 dates bc it's a leap year
   d <- as.Date(strftime(dates, format="2012-%m-%d"))
-  
+
   ifelse (d >= WS | d < SE, "Winter",
           ifelse (d >= SE & d < SS, "Spring",
                   ifelse (d >= SS & d < FE, "Summer", "Fall")))
@@ -254,7 +255,7 @@ dt[, season := get_season(date)]
 dt <- dt[order(adm2_id, date)]
 dt[, trend := sequence(.N), by = adm2_id]
 dt[, day_o_week := weekdays(date)]
-write.csv(dt, paste0(model.dir, "mex_model_thesis.csv"), row.names = F)
+write.csv(dt, paste0(model.dir, "mex_model_thesis_age65.csv"), row.names = F)
 
 
 ###SCRAP########################################################
@@ -263,7 +264,7 @@ write.csv(dt, paste0(model.dir, "mex_model_thesis.csv"), row.names = F)
 # dt <- dt[,.(adm2_id_res, adm2_name_res, n_cvd, n_resp, n__ri, n_all_cause, date)]
 # dt[, date := as.Date(date, "%d%b%Y")]
 # setnames(dt, "adm2_id_res", "adm2_id")
-# 
+#
 # #Read in predictor variables, format, and merge
 # dt.preds <- fread(paste0(save.dir, "all_preds.csv"))
 # dt.preds[, date := as.Date(date)]

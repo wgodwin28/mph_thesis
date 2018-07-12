@@ -8,7 +8,7 @@ if(Sys.info()[1]=='Windows'){
 }
 
 # load packages, install if missing 
-pacman::p_load(data.table, fst, ggplot2, parallel, magrittr, lavaan, lavaanPlot)
+pacman::p_load(data.table, fst, ggplot2, parallel, magrittr, lavaan, lavaanPlot, semPlot, xtable, Hmisc)
 
 #set settings
 main.dir <- paste0(j, "temp/wgodwin/thesis/data/01_raw/")
@@ -126,18 +126,82 @@ write.csv(dt, paste0(model.dir, "mex_city_full.csv"), row.names = F)
 ##############################################################
 #####run model
 ##############################################################
-dt <- fread(paste0(j, "temp/wgodwin/thesis/data/03_analysis/mex_city_full.csv"))
-model <- 'pm25 ~ temperature + humidity + wind_speed'
+dt <- fread("C:/Users/wgodwin/Desktop/csss_526/exercises/mex_city_full.csv")
+dt2 <- dt[,.(temp_mean_day, temp_mean_3day, temp_min_day, temp_min_3day, temp_max_day, temp_max_3day, humidity, wind_speed, ozone, pm25)]
+mcor <- round(cor(dt2, use = "complete.obs"), 3)
+symnum(corre.matr)
+lower.tri(dt2, diag = F)
+upper<-mcor
+upper[upper.tri(mcor)]<-""
+upper<-as.data.frame(upper)
+pdf("C:/Users/wgodwin/Desktop/csss_526/exercises/mcor.pdf")
+print(xtable(upper), type="html")
+dev.off()
+corstars(dt2, result="html")
+corrplot(mcor, method = "number")
 
-#model 1
+dt2 <- melt(dt2, measure.vars = colnames(dt2))
+pp <- ggplot(aes(x = value), data = dt2) + facet_wrap(~variable, scales="free") + 
+      geom_histogram() + stat_function(fun = function(x, mean, sd, n){ 
+        n * dnorm(x = value, mean = mean, sd = sd)}, 
+        args = list(mean = mean(dt2$value), sd = sd(dt2$value), n = 100))
+#####model 1######
 sem_mod_1 <- "temperature  =~ temp_mean_day + temp_min_day + temp_max_day
               ozone ~ temperature + humidity + wind_speed"
 
-sem_mod_1 <- "ozone ~ temp_min_day + humidity + wind_speed"
+fit1 <- cfa(model = sem_mod_1, data = dt)
+summary(fit1, fit.measures = T)
+lavaanPlot(model = fit1,  stand = F, coefs = T, sig = .005, labels = c("ozone", "Ozone", "Temperature Maximum"))
+semPaths(fit1)
 
-fit <- sem(model = sem_mod_1, data = dt)
-summary(fit)
-lavaanPlot(model = fit)
+#####model 2######
+sem_mod_2 <- "temperature  =~ temp_mean_3day + temp_min_3day + temp_max_3day
+              ozone ~ temperature + humidity + wind_speed"
+
+fit2 <- cfa(model = sem_mod_2, data = dt)
+summary(fit2, fit.measures = T)
+lavaanPlot(model = fit2,  coefs = T)
+
+
+#####model 3######
+sem_mod_3 <- 
+"temperature_daily  =~ temp_mean_day + temp_min_day + temp_max_day
+temperature_3day    =~ temp_mean_3day + temp_min_3day + temp_max_3day
+ozone ~ temperature_daily + temperature_3day + humidity + wind_speed"
+
+fit3 <- cfa(model = sem_mod_3, data = dt)
+summary(fit3, fit.measures = T)
+lavaanPlot(model = fit3,  coefs = T)
+
+#####model 4######
+sem_mod_4 <- "temperature  =~ temp_mean_day + temp_min_day + temp_max_day
+              pm25 ~ temperature + humidity + wind_speed"
+
+fit4 <- cfa(model = sem_mod_4, data = dt)
+summary(fit4, fit.measures = T)
+lavaanPlot(model = fit4,  coefs = T)
+
+
+#####model 5######
+sem_mod_5 <- "temperature  =~ temp_mean_3day + temp_min_3day + temp_max_3day
+              pm25 ~ temperature + humidity + wind_speed"
+
+fit5 <- cfa(model = sem_mod_5, data = dt)
+summary(fit5, fit.measures = T)
+lavaanPlot(model = fit5,  coefs = T)
+
+
+#####model 6######
+sem_mod_6 <- 
+  "temperature_daily  =~ temp_mean_day + temp_min_day + temp_max_day
+  temperature_3day    =~ temp_mean_3day + temp_min_3day + temp_max_3day
+  pm25 ~ temperature_daily + temperature_3day + humidity + wind_speed"
+
+fit6 <- cfa(model = sem_mod_6, data = dt)
+summary(fit6, fit.measures = T)
+lavaanPlot(model = fit6,  coefs = T, stand = F)
+
+
 dt[temp_min_3day< -100000, temp_min_3day := NA]
 dt[temp_min_day< -100000, temp_min_day := NA]
 dt[temp_max_day< -100000, temp_max_day := NA]
@@ -148,3 +212,60 @@ dt[temp_min_day> 100000, temp_min_day := NA]
 dt[temp_min_3day> 100000, temp_min_3day := NA]
 dt[temp_max_3day> 100000, temp_max_3day := NA]
 
+##################################################################################
+#######################THESIS DATA################################################
+##################################################################################
+library(dlnm) ; library(mvmeta) ; library(splines) ; library(tsModel) ; library(data.table) ; library(zoo) ; library(mgcv) ; library(itsadug)
+
+#Directories
+in.dir <- paste0(j, "temp/wgodwin/thesis/data/03_analysis/")
+
+###Some initial exploratory plots of the exposure and response variables
+#Read in data
+dt <- fread("C:/Users/wgodwin/Desktop/csss_526/exercises/mex_city_full.csv")
+dt[, date := as.Date(date)]
+dt[, month := months(date, abbreviate=T)]
+
+corstars <-function(x, method=c("pearson", "spearman"), removeTriangle=c("upper", "lower"),
+                    result=c("none", "html", "latex")){
+  #Compute correlation matrix
+  require(Hmisc)
+  x <- as.matrix(x)
+  correlation_matrix<-rcorr(x, type=method[1])
+  R <- correlation_matrix$r # Matrix of correlation coeficients
+  p <- correlation_matrix$P # Matrix of p-value 
+  
+  ## Define notions for significance levels; spacing is important.
+  mystars <- ifelse(p < .0001, "****", ifelse(p < .001, "*** ", ifelse(p < .01, "**  ", ifelse(p < .05, "*   ", "    "))))
+  
+  ## trunctuate the correlation matrix to two decimal
+  R <- format(round(cbind(rep(-1.11, ncol(x)), R), 2))[,-1]
+  
+  ## build a new matrix that includes the correlations with their apropriate stars
+  Rnew <- matrix(paste(R, mystars, sep=""), ncol=ncol(x))
+  diag(Rnew) <- paste(diag(R), " ", sep="")
+  rownames(Rnew) <- colnames(x)
+  colnames(Rnew) <- paste(colnames(x), "", sep="")
+  
+  ## remove upper triangle of correlation matrix
+  if(removeTriangle[1]=="upper"){
+    Rnew <- as.matrix(Rnew)
+    Rnew[upper.tri(Rnew, diag = TRUE)] <- ""
+    Rnew <- as.data.frame(Rnew)
+  }
+  
+  ## remove lower triangle of correlation matrix
+  else if(removeTriangle[1]=="lower"){
+    Rnew <- as.matrix(Rnew)
+    Rnew[lower.tri(Rnew, diag = TRUE)] <- ""
+    Rnew <- as.data.frame(Rnew)
+  }
+  
+  ## remove last column and return the correlation matrix
+  Rnew <- cbind(Rnew[1:length(Rnew)-1])
+  if (result[1]=="none") return(Rnew)
+  else{
+    if(result[1]=="html") print(xtable(Rnew), type="html")
+    else print(xtable(Rnew), type="latex") 
+  }
+} 
